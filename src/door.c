@@ -37,9 +37,9 @@ door_state_t door_next(door_state_t state, door_event_t event)
     case DOOR_OPENING:
         /* Moving up. Done when the open switch fires.
          * No switch in time = something broke. */
-       
         if (event == EV_OUTSIDE_BLOCKED) {
             return DOOR_STOPPED;  /* safety stop */
+        }
         if (event == EV_SWITCH_OPEN) {
             return DOOR_OPEN;
         }
@@ -60,9 +60,9 @@ door_state_t door_next(door_state_t state, door_event_t event)
         if (event == EV_SWITCH_CLOSED) {
             return DOOR_CLOSED;
         }
+       
          if(event == EV_BEAM_BLOCKED){
-            return DOOR_STOPPED ;
-        }
+            return DOOR_STOPPED;
         }
         if (event == EV_TIMEOUT) {
             return DOOR_FAULT;
