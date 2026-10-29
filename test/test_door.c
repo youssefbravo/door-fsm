@@ -1,50 +1,75 @@
-#include "unity.h"   // the test framework
-#include "door.h"    // your code: door_next, the states, the events
+#include "unity.h"
+#include "door.h"
 
-/* Unity runs setUp before every test and tearDown after.
-   We have nothing to prepare, but Unity requires both to exist. */
 void setUp(void) {}
 void tearDown(void) {}
 
-/* ---- Test 1: the beam stops a closing door ---- */
+/* ---- Direction rules (your 4 from before, now checking .state) ---- */
+
 static void test_beam_stops_closing_door(void)
 {
-    door_state_t result = door_next(DOOR_CLOSING, EV_BEAM_BLOCKED);  // ask
-    TEST_ASSERT_EQUAL(DOOR_STOPPED, result);                         // check
+    door_result_t r = door_next(DOOR_CLOSING, EV_BEAM_BLOCKED, true);
+    TEST_ASSERT_EQUAL(DOOR_STOPPED, r.state);
 }
 
-/* ---- Test 2: the outside sensor stops an opening door ---- */
 static void test_outside_stops_opening_door(void)
 {
-    door_state_t result = door_next(DOOR_OPENING, EV_OUTSIDE_BLOCKED);
-    TEST_ASSERT_EQUAL(DOOR_STOPPED, result);
+    door_result_t r = door_next(DOOR_OPENING, EV_OUTSIDE_BLOCKED, true);
+    TEST_ASSERT_EQUAL(DOOR_STOPPED, r.state);
 }
 
-/* ---- Test 3: YOUR TURN ----
-   The beam must NOT stop an opening door.
-   Start: DOOR_OPENING   Event: EV_BEAM_BLOCKED   Expected: DOOR_OPENING */
-   static void test_beam_notstopping_opening_door(void){
-    door_state_t result = door_next(DOOR_OPENING, EV_BEAM_BLOCKED);
-    TEST_ASSERT_EQUAL(DOOR_OPENING, result);
+static void test_beam_notstopping_opening_door(void)
+{
+    door_result_t r = door_next(DOOR_OPENING, EV_BEAM_BLOCKED, true);
+    TEST_ASSERT_EQUAL(DOOR_OPENING, r.state);
+}
 
-   }
+static void test_outside_notstopping_closing_door(void)
+{
+    door_result_t r = door_next(DOOR_CLOSING, EV_OUTSIDE_BLOCKED, true);
+    TEST_ASSERT_EQUAL(DOOR_CLOSING, r.state);
+}
 
+/* ---- New: refuse to start opening into a blocked zone ---- */
 
-/* ---- Test 4: YOUR TURN ----
-   The outside sensor must NOT stop a closing door.
-   Start: DOOR_CLOSING   Event: EV_OUTSIDE_BLOCKED   Expected: DOOR_CLOSING */
- static void test_outside_notstopping_closing_door(void){
-    door_state_t result = door_next(DOOR_CLOSING, EV_OUTSIDE_BLOCKED);
-    TEST_ASSERT_EQUAL(DOOR_CLOSING, result);
+static void test_closed_door_refuses_to_open_when_outside_blocked(void)
+{
+    door_result_t r = door_next(DOOR_CLOSED, EV_CMD_OPEN, false);
+    TEST_ASSERT_EQUAL(DOOR_CLOSED, r.state);
+    TEST_ASSERT_EQUAL(REASON_OUTSIDE_BLOCKED, r.reason);
+}
 
-   }
+static void test_closed_door_opens_when_outside_clear(void)
+{
+    door_result_t r = door_next(DOOR_CLOSED, EV_CMD_OPEN, true);
+    TEST_ASSERT_EQUAL(DOOR_OPENING, r.state);
+    TEST_ASSERT_EQUAL(REASON_NONE, r.reason);
+}
+
+static void test_stopped_door_refuses_to_open_when_outside_blocked(void)
+{
+    door_result_t r = door_next(DOOR_STOPPED, EV_CMD_OPEN, false);
+    TEST_ASSERT_EQUAL(DOOR_STOPPED, r.state);
+    TEST_ASSERT_EQUAL(REASON_OUTSIDE_BLOCKED, r.reason);
+}
+
+static void test_beam_stop_reports_doorway_reason(void)
+{
+    door_result_t r = door_next(DOOR_CLOSING, EV_BEAM_BLOCKED, true);
+    TEST_ASSERT_EQUAL(REASON_BEAM_BLOCKED, r.reason);
+    TEST_ASSERT_EQUAL_STRING("Doorway blocked", door_reason_name(r.reason));
+}
 
 int main(void)
 {
     UNITY_BEGIN();
-    RUN_TEST(test_beam_notstopping_opening_door);
-    RUN_TEST(test_outside_notstopping_closing_door);
     RUN_TEST(test_beam_stops_closing_door);
     RUN_TEST(test_outside_stops_opening_door);
+    RUN_TEST(test_beam_notstopping_opening_door);
+    RUN_TEST(test_outside_notstopping_closing_door);
+    RUN_TEST(test_closed_door_refuses_to_open_when_outside_blocked);
+    RUN_TEST(test_closed_door_opens_when_outside_clear);
+    RUN_TEST(test_stopped_door_refuses_to_open_when_outside_blocked);
+    RUN_TEST(test_beam_stop_reports_doorway_reason);
     return UNITY_END();
 }

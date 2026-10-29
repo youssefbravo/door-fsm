@@ -1,96 +1,71 @@
 #include "door.h"
 
+/* Small helper: packs a state and a reason into one result.
+   'static' = only this file can use it. */
+static door_result_t result(door_state_t state, door_reason_t reason)
+{
+    door_result_t r = { state, reason };
+    return r;
+}
+
 /*
  * door_next: the door's rules.
- * Input:  the current state + one event.
- * Output: the next state.
- * No hardware, no global variables: same inputs always give the same output.
+ * Inputs:  current state, one event, and whether the outside swing zone is clear.
+ * Output:  the next state + the reason (REASON_NONE when nothing went wrong).
  */
-door_state_t door_next(door_state_t state, door_event_t event)
+door_result_t door_next(door_state_t state, door_event_t event, bool outside_clear)
 {
+    /* Rule shared by every resting state: never START opening into a blocked zone.
+     * Stay where you are and report why. */
+    if (event == EV_CMD_OPEN && !outside_clear &&
+        (state == DOOR_UNKNOWN || state == DOOR_CLOSED || state == DOOR_STOPPED)) {
+        return result(state, REASON_OUTSIDE_BLOCKED);
+    }
+
     switch (state) {
 
     case DOOR_UNKNOWN:
-        /* Just powered on: we don't know where the door is.
-         * An end switch is evidence; a command starts a move. */
-        if (event == EV_SWITCH_CLOSED) {
-            return DOOR_CLOSED;
-        }
-        if (event == EV_SWITCH_OPEN) {
-            return DOOR_OPEN;
-        }
-        if (event == EV_CMD_OPEN) {
-            return DOOR_OPENING;
-        }
-        if (event == EV_CMD_CLOSE) {
-            return DOOR_CLOSING;
-        }
-        return state;
+        if (event == EV_SWITCH_CLOSED) return result(DOOR_CLOSED, REASON_NONE);
+        if (event == EV_SWITCH_OPEN)   return result(DOOR_OPEN, REASON_NONE);
+        if (event == EV_CMD_OPEN)      return result(DOOR_OPENING, REASON_NONE);
+        if (event == EV_CMD_CLOSE)     return result(DOOR_CLOSING, REASON_NONE);
+        return result(state, REASON_NONE);
 
     case DOOR_CLOSED:
-        /* Only an open command moves a closed door. */
-        if (event == EV_CMD_OPEN) {
-            return DOOR_OPENING;
-        }
-        return state;
+        if (event == EV_CMD_OPEN)      return result(DOOR_OPENING, REASON_NONE);
+        return result(state, REASON_NONE);
 
     case DOOR_OPENING:
-        /* Moving up. Done when the open switch fires.
-         * No switch in time = something broke. */
-        if (event == EV_OUTSIDE_BLOCKED) {
-            return DOOR_STOPPED;  /* safety stop */
-        }
-        if (event == EV_SWITCH_OPEN) {
-            return DOOR_OPEN;
-        }
-        if (event == EV_TIMEOUT) {
-            return DOOR_FAULT;
-        }
-        return state;  /* commands ignored while moving */
+        /* Swinging out: the outside zone is what we could hit. */
+        if (event == EV_OUTSIDE_BLOCKED) return result(DOOR_STOPPED, REASON_OUTSIDE_BLOCKED);
+        if (event == EV_SWITCH_OPEN)     return result(DOOR_OPEN, REASON_NONE);
+        if (event == EV_TIMEOUT)         return result(DOOR_FAULT, REASON_TIMEOUT);
+        return result(state, REASON_NONE);
 
     case DOOR_OPEN:
-        /* Only a close command moves an open door. */
-        if (event == EV_CMD_CLOSE) {
-            return DOOR_CLOSING;
-        }
-        return state;
+        if (event == EV_CMD_CLOSE)     return result(DOOR_CLOSING, REASON_NONE);
+        return result(state, REASON_NONE);
 
     case DOOR_CLOSING:
-        /* Moving down: the one direction that can trap something. */
-        if (event == EV_SWITCH_CLOSED) {
-            return DOOR_CLOSED;
-        }
-       
-         if(event == EV_BEAM_BLOCKED){
-            return DOOR_STOPPED;
-        }
-        if (event == EV_TIMEOUT) {
-            return DOOR_FAULT;
-        }
-        return state;
+        /* Coming down through the doorway: the beam is what we could hit. */
+        if (event == EV_BEAM_BLOCKED)  return result(DOOR_STOPPED, REASON_BEAM_BLOCKED);
+        if (event == EV_SWITCH_CLOSED) return result(DOOR_CLOSED, REASON_NONE);
+        if (event == EV_TIMEOUT)       return result(DOOR_FAULT, REASON_TIMEOUT);
+        return result(state, REASON_NONE);
 
     case DOOR_STOPPED:
-        /* Stopped by an obstacle. Clearing the obstacle does NOT restart it:
-         * only a fresh command moves the door again. */
-        if (event == EV_CMD_OPEN) {
-            return DOOR_OPENING;
-        }
-        if (event == EV_CMD_CLOSE) {
-            return DOOR_CLOSING;
-        }
-        return state;
+        /* Only a fresh command moves it again. */
+        if (event == EV_CMD_OPEN)      return result(DOOR_OPENING, REASON_NONE);
+        if (event == EV_CMD_CLOSE)     return result(DOOR_CLOSING, REASON_NONE);
+        return result(state, REASON_NONE);
 
     case DOOR_FAULT:
-        /* Sticky: a human must check the hardware first. */
-        return state;
+        return result(state, REASON_NONE);
     }
 
-    /* Only reached if state holds a value outside the enum
-     * (memory corruption, a bad cast). Fail safe: treat it as a fault. */
-    return DOOR_FAULT;
+    return result(DOOR_FAULT, REASON_NONE);
 }
 
-/* Turns a state into text for logs and the display. */
 const char *door_state_name(door_state_t state)
 {
     switch (state) {
@@ -102,5 +77,17 @@ const char *door_state_name(door_state_t state)
     case DOOR_STOPPED: return "STOPPED";
     case DOOR_FAULT:   return "FAULT";
     }
-    return "INVALID";  /* never return NULL: a caller printing it would crash */
+    return "INVALID";
+}
+
+/* Text the OLED will show the user */
+const char *door_reason_name(door_reason_t reason)
+{
+    switch (reason) {
+    case REASON_NONE:            return "OK";
+    case REASON_OUTSIDE_BLOCKED: return "Outside blocked";
+    case REASON_BEAM_BLOCKED:    return "Doorway blocked";
+    case REASON_TIMEOUT:         return "End switch timeout";
+    }
+    return "INVALID";
 }
